@@ -45,13 +45,13 @@ userbot = Client("broadcast_userbot", api_id=API_ID, api_hash=API_HASH, session_
 @bot.on_message(filters.command("start") & filters.user(OWNER_ID))
 async def start(client, message):
     buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔹 Group 1", url="https://t.me/group1"),
-         InlineKeyboardButton("🔹 Group 2", url="https://t.me/group2")],
-        [InlineKeyboardButton("🔹 Group 3", url="https://t.me/group3")]
+        [InlineKeyboardButton("🔹 Group 1", url="https://t.me/identicate"),
+         InlineKeyboardButton("🔹 Group 2", url="https://t.me/martline")],
+        [InlineKeyboardButton("🔹 Group 3", url="https://t.me/sellgrid")]
     ])
 
     await message.reply_photo(
-        photo="https://telegra.ph/file/example.jpg",  # Replace with your image link
+        photo="https://ibb.co/PvvH9VPv",  # Replace with your image link
         caption="👋 **Welcome to Marketplace Manager Bot!**\n\nUse `/help` to see available commands.",
         reply_markup=buttons
     )
