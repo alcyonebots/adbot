@@ -1,23 +1,40 @@
 import asyncio
 import time
+import os
 from pyrogram import Client, filters
 from pymongo import MongoClient
+from pyrogram.errors import ChatWriteForbidden, UserBannedInChannel
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# 🔹 Config
-API_ID = 1234567
-API_HASH = "YOUR_API_HASH"
-BOT_TOKEN = "YOUR_BOT_TOKEN"
-SESSION_STRING = "YOUR_SESSION_STRING"
-OWNER_ID = 123456789  # Only owner can use commands
-MONGO_URL = "mongodb+srv://username:password@cluster.mongodb.net/database"
+# 🔹 User Input During VPS Deployment
+if not os.path.exists("config.env"):
+    print("\n🔹 VPS Setup: Enter the required details\n")
+    BOT_TOKEN = input("Enter Bot Token: ")
+    SESSION_STRING = input("Enter Session String: ")
+    OWNER_ID = int(input("Enter Owner ID: "))
+    MONGO_URL = input("Enter MongoDB URL: ")
+    DB_NAME = input("Enter MongoDB Database Name: ")
+
+    with open("config.env", "w") as f:
+        f.write(f"BOT_TOKEN={BOT_TOKEN}\nSESSION_STRING={SESSION_STRING}\nOWNER_ID={OWNER_ID}\nMONGO_URL={MONGO_URL}\nDB_NAME={DB_NAME}\n")
+
+else:
+    from dotenv import load_dotenv
+    load_dotenv("config.env")
+    BOT_TOKEN = os.getenv("BOT_TOKEN")
+    SESSION_STRING = os.getenv("SESSION_STRING")
+    OWNER_ID = int(os.getenv("OWNER_ID"))
+    MONGO_URL = os.getenv("MONGO_URL")
+    DB_NAME = os.getenv("DB_NAME")
+
+API_ID = 1234567  # Replace with your API_ID
+API_HASH = "YOUR_API_HASH"  # Replace with your API_HASH
 
 # 🔹 MongoDB Setup
 client = MongoClient(MONGO_URL)
-db = client["adbot"]
-groups = db["groups"]  # Store groups
+db = client[DB_NAME]
 settings = db["settings"]  # Store scheduled message & delay settings
-chat_links = db["chat_links"]  # Store chat folder links
+banned_groups = db["banned_groups"]  # Store muted/banned groups
 
 # 🔹 Pyrogram Clients
 bot = Client("control_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)  # Bot for commands
@@ -28,14 +45,14 @@ userbot = Client("broadcast_userbot", api_id=API_ID, api_hash=API_HASH, session_
 @bot.on_message(filters.command("start") & filters.user(OWNER_ID))
 async def start(client, message):
     buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Group 1", url="https://t.me/group1"),
-         InlineKeyboardButton("Group 2", url="https://t.me/group2")],
-        [InlineKeyboardButton("Group 3", url="https://t.me/group3")]
+        [InlineKeyboardButton("🔹 Group 1", url="https://t.me/group1"),
+         InlineKeyboardButton("🔹 Group 2", url="https://t.me/group2")],
+        [InlineKeyboardButton("🔹 Group 3", url="https://t.me/group3")]
     ])
 
     await message.reply_photo(
-        photo="https://telegra.ph/file/example.jpg",  # Change this URL
-        caption="👋 **Welcome to the Marketplace Manager Bot!**\n\nUse `/help` to see available commands.",
+        photo="https://telegra.ph/file/example.jpg",  # Replace with your image link
+        caption="👋 **Welcome to Marketplace Manager Bot!**\n\nUse `/help` to see available commands.",
         reply_markup=buttons
     )
 
@@ -49,7 +66,7 @@ async def help_command(client, message):
 - `/setdelay 1m` → Set delay (1m = 1 minute, 1h = 1 hour, max 24h)
 - `/broadcast` (reply to message) → Send broadcast via session
 - `/feedback` → Contact support
-- `/addlink chat_folder_link` → Add chat folder link for broadcasts
+- `/banned` → View banned/muted groups
 """
     await message.reply(help_text, parse_mode="markdown")
 
@@ -85,6 +102,16 @@ async def set_delay(client, message):
     await message.reply(f"✅ **Delay set to `{delay_str}`!**", parse_mode="markdown")
 
 
+# ✅ **Fetch All Groups From Session**
+async def get_groups():
+    groups = []
+    async with userbot:
+        async for dialog in userbot.get_dialogs():
+            if dialog.chat.type in ["supergroup", "channel"]:
+                groups.append(dialog.chat.id)
+    return groups
+
+
 # ✅ **Broadcast Command (via Session)**
 @bot.on_message(filters.command("broadcast") & filters.reply & filters.user(OWNER_ID))
 async def broadcast_command(client, message):
@@ -96,15 +123,19 @@ async def broadcast_command(client, message):
 
     await message.reply(f"🚀 **Broadcasting Started!**\n⏳ Delay: `{delay}` sec", parse_mode="markdown")
 
-    success, failed = 0, 0
+    success, failed, banned = 0, 0, 0
     start_time = time.time()
 
     async with userbot:
-        for group in groups.find():
+        groups = await get_groups()
+        for group_id in groups:
             try:
-                await userbot.forward_messages(chat_id=group["chat_id"], from_chat_id=chat_id, message_ids=msg_id)
+                await userbot.forward_messages(chat_id=group_id, from_chat_id=chat_id, message_ids=msg_id)
                 success += 1
                 await asyncio.sleep(delay)  # Delay between messages
+            except (ChatWriteForbidden, UserBannedInChannel):
+                banned_groups.update_one({"chat_id": group_id}, {"$set": {"banned": True}}, upsert=True)
+                banned += 1
             except:
                 failed += 1
 
@@ -112,34 +143,17 @@ async def broadcast_command(client, message):
     taken = round(end_time - start_time, 2)
 
     await message.reply(
-        f"✅ **Broadcast Complete!**\n\n📌 **Success:** `{success}`\n❌ **Failed:** `{failed}`\n⏳ **Time Taken:** `{taken}s`",
+        f"✅ **Broadcast Complete!**\n\n📌 **Success:** `{success}`\n❌ **Failed:** `{failed}`\n🚫 **Banned/Muted:** `{banned}`\n⏳ **Time Taken:** `{taken}s`",
         parse_mode="markdown"
     )
 
 
-# ✅ **Feedback Command**
-@bot.on_message(filters.command("feedback") & filters.user(OWNER_ID))
-async def feedback(client, message):
-    await message.reply("📩 **For queries, contact [Alcyone Support](https://t.me/AlcyoneSupport)**", parse_mode="markdown")
-
-
-# ✅ **Add Chat Folder Link**
-@bot.on_message(filters.command("addlink") & filters.user(OWNER_ID))
-async def add_chat_folder(client, message):
-    if len(message.command) < 2:
-        return await message.reply("**Usage:** `/addlink chat_folder_link`", parse_mode="markdown")
-
-    link = message.command[1]
-    chat_links.insert_one({"link": link})
-    await message.reply("✅ **Chat folder link added!**", parse_mode="markdown")
-
-
 # ✅ **Run Bots**
 async def main():
-    await userbot.start()  # Start session-based userbot
-    await bot.start()  # Start bot commands
+    await userbot.start()
+    await bot.start()
     print("Bot & Userbot are Running!")
-    await asyncio.Event().wait()  # Keep running
+    await asyncio.Event().wait()
 
 
 if __name__ == "__main__":
