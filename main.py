@@ -27,8 +27,8 @@ else:
     MONGO_URL = os.getenv("MONGO_URL")
     DB_NAME = os.getenv("DB_NAME")
 
-API_ID = 1234567  # Replace with your API_ID
-API_HASH = "YOUR_API_HASH"  # Replace with your API_HASH
+API_ID = 28561722  # Replace with your API_ID
+API_HASH = "a538ba07656f746def99bed7032121cc"  # Replace with your API_HASH
 
 # 🔹 MongoDB Setup
 client = MongoClient(MONGO_URL)
